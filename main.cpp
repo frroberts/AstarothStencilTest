@@ -4,6 +4,8 @@
 
 #include <cuda_runtime_api.h>
 
+#define SHAREDCACHE
+
 /*
 struct int3{
     int x;
@@ -18,6 +20,9 @@ struct double3{
 };
 */
 
+constexpr int xThreads = 32;
+constexpr int yThreads = 4;
+constexpr int zThreads = 4;
 
 
 typedef double AcReal;
@@ -56,8 +61,8 @@ static __device__
 size_t acVertexBufferIdx_shared(const int i, const int j, const int k)
 {
     return i +                          //
-           j * (32+6) + //
-           k * (32+6) * (4+6);
+           j * (xThreads+6) + //
+           k * (xThreads+6) * (yThreads+6);
 }
 
 
@@ -89,6 +94,7 @@ static __device__ __forceinline__
 AcReal getData(int3 vertexIdx, int3 vertexOffsets, const AcReal *__restrict__ arr)
 {
     int3 vertexIdxReal = vertexIdx;
+
 
     // if shared 
     vertexIdxReal.x = threadIdx.x +3;
@@ -263,28 +269,49 @@ static __device__ __forceinline__
 AcRealData read_data(const int3 &vertexIdx, const int3 &globalVertexIdx, AcReal *__restrict__ buf) {
     AcRealData data;
 
-    __shared__ double sharedBuf[(32+6)*(4+6)*(4+6)];
+    __shared__ double sharedBuf[(xThreads+6)*(yThreads+6)*(zThreads+6)];
 
-    for (size_t x = threadIdx.x; x < 32+6; x += 32)
+    int idxLocal = threadIdx.x + (threadIdx.y * blockDim.x) + (threadIdx.z * blockDim.x * blockDim.y);
+
+    for (size_t i = idxLocal; i < (xThreads+6) * (yThreads+6) * (zThreads+6); i += xThreads * yThreads * zThreads)
     {
-        for (size_t y = threadIdx.y; y < 4+6; y += 4)
+        /* code */
+        int x = i % xThreads;
+        int y = (i / xThreads)%yThreads;
+        int z = (i / (xThreads*yThreads))%zThreads;
+        int sharedInd = x + (y * (xThreads+6)) + (z *(xThreads+6)*(yThreads+6));
+        int targetX = vertexIdx.x + x -3;
+        int targetY = vertexIdx.y + y -3;
+        int targetZ = vertexIdx.z + z -3;
+        if(targetX < AC_mx && targetY < AC_my && targetZ < AC_mz)
+            sharedBuf[sharedInd] = buf[IDX(vertexIdx.x + x -3, vertexIdx.y + y -3, vertexIdx.z + z -3)];
+    }
+    
+    /*
+    for (size_t x = threadIdx.x; x < xThreads+6; x += xThreads)
+    {
+        for (size_t y = threadIdx.y; y < yThreads+6; y += yThreads)
         {
-            for (size_t z = threadIdx.z; z < 4+6; z += 4)
+            for (size_t z = threadIdx.z; z < zThreads+6; z += zThreads)
             {
-                int sharedInd = x + (y * (32+6)) + (z *(32+6)*(4+6));
+                int sharedInd = x + (y * (xThreads+6)) + (z *(xThreads+6)*(yThreads+6));
                 int targetX = vertexIdx.x + x -3;
                 int targetY = vertexIdx.y + y -3;
                 int targetZ = vertexIdx.z + z -3;
-                sharedBuf[sharedInd] = buf[IDX(vertexIdx.x + x -3, vertexIdx.y + y -3, vertexIdx.z + z -3)];
+                if(targetX < AC_mx && targetY < AC_my && targetZ < AC_mz)
+                    sharedBuf[sharedInd] = buf[IDX(vertexIdx.x + x -3, vertexIdx.y + y -3, vertexIdx.z + z -3)];
             }
         }
     }
+    */
     __syncthreads();
     
-
-    data.value = preprocessed_value(vertexIdx, globalVertexIdx, sharedBuf);
-    data.gradient = preprocessed_gradient(vertexIdx, globalVertexIdx, sharedBuf);
-    data.hessian = preprocessed_hessian(vertexIdx, globalVertexIdx, sharedBuf);
+    if (!(vertexIdx.x >= end.x || vertexIdx.y >= end.y || vertexIdx.z >= end.z))
+    {
+        data.value = preprocessed_value(vertexIdx, globalVertexIdx, sharedBuf);
+        data.gradient = preprocessed_gradient(vertexIdx, globalVertexIdx, sharedBuf);
+        data.hessian = preprocessed_hessian(vertexIdx, globalVertexIdx, sharedBuf);
+    }
     return data;
 }
 
@@ -297,18 +324,23 @@ __global__ void kern(AcReal* __restrict__ buf, AcReal* __restrict__ bufOut){
                                   threadIdx.y + blockIdx.y * blockDim.y + start.y,
                                   threadIdx.z + blockIdx.z * blockDim.z + start.z};
 
-    if (vertexIdx.x >= end.x || vertexIdx.y >= end.y || vertexIdx.z >= end.z)
-        return;
+    // we cant exit the threads since i need them to fill the shared buffer
+    //if (vertexIdx.x >= end.x || vertexIdx.y >= end.y || vertexIdx.z >= end.z)
+    //    return;
 
     const int idx = IDX(vertexIdx.x, vertexIdx.y, vertexIdx.z);
 
     AcRealData dat = read_data(vertexIdx, vertexIdx, buf);
+
+    if (!(vertexIdx.x >= end.x || vertexIdx.y >= end.y || vertexIdx.z >= end.z))
+    {
 
 // sum it all together to stop it being optimized
     bufOut[idx] = dat.value + dat.gradient.x + dat.gradient.y + dat.gradient.z + 
         dat.hessian.row[0].x + dat.hessian.row[0].y + dat.hessian.row[0].z + 
         dat.hessian.row[1].x + dat.hessian.row[1].y + dat.hessian.row[1].z + 
         dat.hessian.row[2].x + dat.hessian.row[2].y + dat.hessian.row[2].z;
+    }
 }
 
 __global__ void filler(AcReal* __restrict__ buf, AcReal* __restrict__ bufOut, int count)
@@ -367,7 +399,7 @@ int main() {
     cudaMemcpyToSymbol(end, &h_end, sizeof(int3), 0, cudaMemcpyHostToDevice);
 
 
-    dim3 block = {32,4,4};
+    dim3 block = {xThreads,yThreads,zThreads};
     dim3 grid = {1+(size.x / block.x), 1+(size.y / block.y), 1+(size.z / block.z)};
 
     for (size_t i = 0; i < 10; i++)
