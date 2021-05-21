@@ -4,7 +4,7 @@
 
 #include <cuda_runtime_api.h>
 
-#define SHAREDCACHE
+#define SHAREDCACHE_no
 
 /*
 struct int3{
@@ -20,8 +20,8 @@ struct double3{
 };
 */
 
-constexpr int xThreads = 32;
-constexpr int yThreads = 4;
+constexpr int xThreads = 16;
+constexpr int yThreads = 8;
 constexpr int zThreads = 4;
 
 
@@ -95,7 +95,7 @@ AcReal getData(int3 vertexIdx, int3 vertexOffsets, const AcReal *__restrict__ ar
 {
     int3 vertexIdxReal = vertexIdx;
 
-
+#ifdef SHAREDCACHE
     // if shared 
     vertexIdxReal.x = threadIdx.x +3;
     vertexIdxReal.y = threadIdx.y +3;
@@ -103,10 +103,10 @@ AcReal getData(int3 vertexIdx, int3 vertexOffsets, const AcReal *__restrict__ ar
 
     return arr[IDX_shared(vertexIdxReal.x + vertexOffsets.x, vertexIdxReal.y + vertexOffsets.y, vertexIdxReal.z + vertexOffsets.z)];
 
+#else
     // if not shared
-    /*
     return arr[IDX(vertexIdxReal.x + vertexOffsets.x, vertexIdxReal.y + vertexOffsets.y, vertexIdxReal.z + vertexOffsets.z)];
-    */
+#endif
 }
 
 
@@ -271,23 +271,26 @@ AcRealData read_data(const int3 &vertexIdx, const int3 &globalVertexIdx, AcReal 
 
     __shared__ double sharedBuf[(xThreads+6)*(yThreads+6)*(zThreads+6)];
 
-    int idxLocal = threadIdx.x + (threadIdx.y * blockDim.x) + (threadIdx.z * blockDim.x * blockDim.y);
+    int idxLocal = threadIdx.x + (threadIdx.y * xThreads) + (threadIdx.z * xThreads * yThreads);
 
     for (size_t i = idxLocal; i < (xThreads+6) * (yThreads+6) * (zThreads+6); i += xThreads * yThreads * zThreads)
     {
-        /* code */
         int x = i % xThreads;
         int y = (i / xThreads)%yThreads;
         int z = (i / (xThreads*yThreads))%zThreads;
-        int sharedInd = x + (y * (xThreads+6)) + (z *(xThreads+6)*(yThreads+6));
+        //int sharedInd = x + (y * (xThreads+6)) + (z *(xThreads+6)*(yThreads+6));
         int targetX = vertexIdx.x + x -3;
         int targetY = vertexIdx.y + y -3;
         int targetZ = vertexIdx.z + z -3;
         if(targetX < AC_mx && targetY < AC_my && targetZ < AC_mz)
-            sharedBuf[sharedInd] = buf[IDX(vertexIdx.x + x -3, vertexIdx.y + y -3, vertexIdx.z + z -3)];
+        {
+            sharedBuf[i] = buf[IDX(targetX, targetY, targetZ)];
+        }
     }
+
     
     /*
+    // broken ....
     for (size_t x = threadIdx.x; x < xThreads+6; x += xThreads)
     {
         for (size_t y = threadIdx.y; y < yThreads+6; y += yThreads)
@@ -304,13 +307,31 @@ AcRealData read_data(const int3 &vertexIdx, const int3 &globalVertexIdx, AcReal 
         }
     }
     */
+
+/*
+   for (size_t i = 0; i < (xThreads+6)*(yThreads+6)*(zThreads+6); i++)
+   {
+       if(sharedBuf[i] != 1 && idxLocal==0)
+       {
+           printf("fail %i %d \n", i, sharedBuf[i]);
+           break;
+       }
+   }
+  */ 
+    
     __syncthreads();
     
     if (!(vertexIdx.x >= end.x || vertexIdx.y >= end.y || vertexIdx.z >= end.z))
     {
+#ifdef SHAREDCACHE
         data.value = preprocessed_value(vertexIdx, globalVertexIdx, sharedBuf);
         data.gradient = preprocessed_gradient(vertexIdx, globalVertexIdx, sharedBuf);
         data.hessian = preprocessed_hessian(vertexIdx, globalVertexIdx, sharedBuf);
+#else
+        data.value = preprocessed_value(vertexIdx, globalVertexIdx, buf);
+        data.gradient = preprocessed_gradient(vertexIdx, globalVertexIdx, buf);
+        data.hessian = preprocessed_hessian(vertexIdx, globalVertexIdx, buf);
+#endif
     }
     return data;
 }
@@ -410,10 +431,7 @@ int main() {
         auto end = std::chrono::steady_clock::now();
         std::chrono::duration<double> elapsed_seconds = end-start;
         std::cout << "elapsed time: " << elapsed_seconds.count() << "s\n";
-    }
-
-    
-    cudaMemcpy(hostBuf, outBuf, sizeof(AcReal)*count, cudaMemcpyDefault);
+            cudaMemcpy(hostBuf, outBuf, sizeof(AcReal)*count, cudaMemcpyDefault);
 
     std::cout << hostBuf[12413431] << " " << hostBuf[627389] << std::endl;
 
@@ -425,6 +443,10 @@ int main() {
 
     std::cout << sum << std::endl;
     
+    }
+
+    
+
  
     //cudaMemcpyToSymbol(d_mesh_info, &value, sizeof(value), offset, cudaMemcpyHostToDevice);
 }
