@@ -229,6 +229,8 @@ AcMatrix preprocessed_hessian(const int3 &vertexIdx, const int3 &globalVertexIdx
 static __device__ __forceinline__
 AcRealData read_data(const int3 &vertexIdx, const int3 &globalVertexIdx, AcReal *__restrict__ buf) {
     AcRealData data;
+
+
     data.value = preprocessed_value(vertexIdx, globalVertexIdx, buf);
     data.gradient = preprocessed_gradient(vertexIdx, globalVertexIdx, buf);
     data.hessian = preprocessed_hessian(vertexIdx, globalVertexIdx, buf);
@@ -258,6 +260,15 @@ __global__ void kern(AcReal* __restrict__ buf, AcReal* __restrict__ bufOut){
         dat.hessian.row[2].x + dat.hessian.row[2].y + dat.hessian.row[2].z;
 }
 
+__global__ void filler(AcReal* __restrict__ buf, AcReal* __restrict__ bufOut, int count)
+{
+    int idx = (threadIdx.x + blockIdx.x * blockDim.x);
+    if(idx >= count)
+        return;
+    buf[idx] = 1;// + threadIdx.x/120.0;
+    bufOut[idx] = 0;
+}
+
 int main() {
     //
 
@@ -274,9 +285,12 @@ int main() {
 
     AcReal *inBuf;
     AcReal *outBuf;
+    AcReal *hostBuf = new AcReal[count];
 
     cudaMalloc((void**)&inBuf, count * sizeof(AcReal));
     cudaMalloc((void**)&outBuf, count * sizeof(AcReal));
+
+    filler<<<1+(count/512), 512>>>(inBuf, outBuf, count);
     
     h_start.x = 3;
     h_start.y = 3;
@@ -302,7 +316,7 @@ int main() {
     cudaMemcpyToSymbol(end, &h_end, sizeof(int3), 0, cudaMemcpyHostToDevice);
 
 
-    dim3 block = {32,4,1};
+    dim3 block = {32,4,4};
     dim3 grid = {1+(size.x / block.x), 1+(size.y / block.y), 1+(size.z / block.z)};
 
     for (size_t i = 0; i < 10; i++)
@@ -315,5 +329,19 @@ int main() {
         std::cout << "elapsed time: " << elapsed_seconds.count() << "s\n";
     }
 
+    
+    cudaMemcpy(hostBuf, outBuf, sizeof(AcReal)*count, cudaMemcpyDefault);
+
+    std::cout << hostBuf[12413431] << " " << hostBuf[627389] << std::endl;
+
+    double sum = 0;
+    for (size_t i = 0; i < count; i++)
+    {
+        sum += hostBuf[i];
+    }
+
+    std::cout << sum << std::endl;
+    
+ 
     //cudaMemcpyToSymbol(d_mesh_info, &value, sizeof(value), offset, cudaMemcpyHostToDevice);
 }
