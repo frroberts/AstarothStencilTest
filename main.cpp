@@ -52,10 +52,25 @@ size_t acVertexBufferIdx(const int i, const int j, const int k)
            k * AC_mx * AC_my;
 }
 
+static __device__
+size_t acVertexBufferIdx_shared(const int i, const int j, const int k)
+{
+    return i +                          //
+           j * (32+6) + //
+           k * (32+6) * (4+6);
+}
+
+
 static __device__ int
 IDX(const int i, const int j, const int k)
 {
     return acVertexBufferIdx(i, j, k);
+}
+
+static __device__ int
+IDX_shared(const int i, const int j, const int k)
+{
+    return acVertexBufferIdx_shared(i, j, k);
 }
 
 static __device__ constexpr
@@ -68,6 +83,24 @@ static __device__ __forceinline__
 int IDX(const int3 idx)
 {
     return IDX(idx.x, idx.y, idx.z);
+}
+
+static __device__ __forceinline__
+AcReal getData(int3 vertexIdx, int3 vertexOffsets, const AcReal *__restrict__ arr)
+{
+    int3 vertexIdxReal = vertexIdx;
+
+    // if shared 
+    vertexIdxReal.x = threadIdx.x +3;
+    vertexIdxReal.y = threadIdx.y +3;
+    vertexIdxReal.z = threadIdx.z +3;
+
+    return arr[IDX_shared(vertexIdxReal.x + vertexOffsets.x, vertexIdxReal.y + vertexOffsets.y, vertexIdxReal.z + vertexOffsets.z)];
+
+    // if not shared
+    /*
+    return arr[IDX(vertexIdxReal.x + vertexOffsets.x, vertexIdxReal.y + vertexOffsets.y, vertexIdxReal.z + vertexOffsets.z)];
+    */
 }
 
 
@@ -110,7 +143,7 @@ static __device__ __forceinline__
 AcReal derx(int3 vertexIdx, const AcReal *__restrict__ arr) {
     AcReal pencil[(6) + 1];
     for (int offset = 0; offset < (6) + 1; ++offset) {
-        pencil[IDX(offset)] = arr[IDX(vertexIdx.x + offset - (6) / 2, vertexIdx.y, vertexIdx.z)];
+        pencil[IDX(offset)] = getData(vertexIdx, {offset - (6) / 2,0,0}, arr);//arr[IDX(vertexIdx.x + offset - (6) / 2, vertexIdx.y, vertexIdx.z)];
     }
     return first_derivative(pencil, AC_inv_dsx);
 }
@@ -119,7 +152,7 @@ static __device__ __forceinline__
 AcReal derxx(int3 vertexIdx, const AcReal *__restrict__ arr) {
     AcReal pencil[(6) + 1];
     for (int offset = 0; offset < (6) + 1; ++offset) {
-        pencil[IDX(offset)] = arr[IDX(vertexIdx.x + offset - (6) / 2, vertexIdx.y, vertexIdx.z)];
+        pencil[IDX(offset)] = getData(vertexIdx, {offset - (6) / 2,0,0}, arr);//arr[IDX(vertexIdx.x + offset - (6) / 2, vertexIdx.y, vertexIdx.z)];
     }
     return second_derivative(pencil, AC_inv_dsx);
 }
@@ -128,11 +161,11 @@ static __device__ __forceinline__
 AcReal derxy(int3 vertexIdx, const AcReal *__restrict__ arr) {
     AcReal pencil_a[(6) + 1];
     for (int offset = 0; offset < (6) + 1; ++offset) {
-        pencil_a[IDX(offset)] = arr[IDX(vertexIdx.x + offset - (6) / 2, vertexIdx.y + offset - (6) / 2, vertexIdx.z)];
+        pencil_a[IDX(offset)] = getData(vertexIdx, {offset - (6) / 2,offset - (6) / 2,0}, arr);//arr[IDX(vertexIdx.x + offset - (6) / 2, vertexIdx.y + offset - (6) / 2, vertexIdx.z)];
     }
     AcReal pencil_b[(6) + 1];
     for (int offset = 0; offset < (6) + 1; ++offset) {
-        pencil_b[IDX(offset)] = arr[IDX(vertexIdx.x + offset - (6) / 2, vertexIdx.y + (6) / 2 - offset, vertexIdx.z)];
+        pencil_b[IDX(offset)] = getData(vertexIdx, {offset - (6) / 2,(6) / 2 - offset,0}, arr);//arr[IDX(vertexIdx.x + offset - (6) / 2, vertexIdx.y + (6) / 2 - offset, vertexIdx.z)];
     }
     return cross_derivative(pencil_a, pencil_b, AC_inv_dsx, AC_inv_dsy);
 }
@@ -141,11 +174,11 @@ static __device__ __forceinline__
 AcReal derxz(int3 vertexIdx, const AcReal *__restrict__ arr) {
     AcReal pencil_a[(6) + 1];
     for (int offset = 0; offset < (6) + 1; ++offset) {
-        pencil_a[IDX(offset)] = arr[IDX(vertexIdx.x + offset - (6) / 2, vertexIdx.y, vertexIdx.z + offset - (6) / 2)];
+        pencil_a[IDX(offset)] = getData(vertexIdx, {offset - (6) / 2,0,offset - (6) / 2}, arr);//arr[IDX(vertexIdx.x + offset - (6) / 2, vertexIdx.y, vertexIdx.z + offset - (6) / 2)];
     }
     AcReal pencil_b[(6) + 1];
     for (int offset = 0; offset < (6) + 1; ++offset) {
-        pencil_b[IDX(offset)] = arr[IDX(vertexIdx.x + offset - (6) / 2, vertexIdx.y, vertexIdx.z + (6) / 2 - offset)];
+        pencil_b[IDX(offset)] = getData(vertexIdx, {offset - (6) / 2,0,(6) / 2 - offset}, arr);//arr[IDX(vertexIdx.x + offset - (6) / 2, vertexIdx.y, vertexIdx.z + (6) / 2 - offset)];
     }
     return cross_derivative(pencil_a, pencil_b, AC_inv_dsx, AC_inv_dsz);
 }
@@ -154,7 +187,7 @@ static __device__ __forceinline__
 AcReal dery(int3 vertexIdx, const AcReal *__restrict__ arr) {
     AcReal pencil[(6) + 1];
     for (int offset = 0; offset < (6) + 1; ++offset) {
-        pencil[IDX(offset)] = arr[IDX(vertexIdx.x, vertexIdx.y + offset - (6) / 2, vertexIdx.z)];
+        pencil[IDX(offset)] = getData(vertexIdx, {0,(6) / 2 - offset,0}, arr);//arr[IDX(vertexIdx.x, vertexIdx.y + offset - (6) / 2, vertexIdx.z)];
     }
     return first_derivative(pencil, AC_inv_dsy);
 }
@@ -163,7 +196,7 @@ static __device__ __forceinline__
 AcReal deryy(int3 vertexIdx, const AcReal *__restrict__ arr) {
     AcReal pencil[(6) + 1];
     for (int offset = 0; offset < (6) + 1; ++offset) {
-        pencil[IDX(offset)] = arr[IDX(vertexIdx.x, vertexIdx.y + offset - (6) / 2, vertexIdx.z)];
+        pencil[IDX(offset)] = getData(vertexIdx, {0,(6) / 2 - offset,0}, arr);//arr[IDX(vertexIdx.x, vertexIdx.y + offset - (6) / 2, vertexIdx.z)];
     }
     return second_derivative(pencil, AC_inv_dsy);
 }
@@ -172,11 +205,11 @@ static __device__ __forceinline__
 AcReal deryz(int3 vertexIdx, const AcReal *__restrict__ arr) {
     AcReal pencil_a[(6) + 1];
     for (int offset = 0; offset < (6) + 1; ++offset) {
-        pencil_a[IDX(offset)] = arr[IDX(vertexIdx.x, vertexIdx.y + offset - (6) / 2, vertexIdx.z + offset - (6) / 2)];
+        pencil_a[IDX(offset)] = getData(vertexIdx, {0,offset - (6) / 2,offset - (6) / 2}, arr);//arr[IDX(vertexIdx.x, vertexIdx.y + offset - (6) / 2, vertexIdx.z + offset - (6) / 2)];
     }
     AcReal pencil_b[(6) + 1];
     for (int offset = 0; offset < (6) + 1; ++offset) {
-        pencil_b[IDX(offset)] = arr[IDX(vertexIdx.x, vertexIdx.y + offset - (6) / 2, vertexIdx.z + (6) / 2 - offset)];
+        pencil_b[IDX(offset)] = getData(vertexIdx, {0,offset - (6) / 2,(6) / 2 - offset}, arr);//arr[IDX(vertexIdx.x, vertexIdx.y + offset - (6) / 2, vertexIdx.z + (6) / 2 - offset)];
     }
     return cross_derivative(pencil_a, pencil_b, AC_inv_dsy, AC_inv_dsz);
 }
@@ -185,7 +218,7 @@ static __device__ __forceinline__
 AcReal derz(int3 vertexIdx, const AcReal *__restrict__ arr) {
     AcReal pencil[(6) + 1];
     for (int offset = 0; offset < (6) + 1; ++offset) {
-        pencil[IDX(offset)] = arr[IDX(vertexIdx.x, vertexIdx.y, vertexIdx.z + offset - (6) / 2)];
+        pencil[IDX(offset)] = getData(vertexIdx, {0,0,offset - (6) / 2}, arr);//arr[IDX(vertexIdx.x, vertexIdx.y, vertexIdx.z + offset - (6) / 2)];
     }
     return first_derivative(pencil, AC_inv_dsz);
 }
@@ -194,7 +227,7 @@ static __device__ __forceinline__
 AcReal derzz(int3 vertexIdx, const AcReal *__restrict__ arr) {
     AcReal pencil[(6) + 1];
     for (int offset = 0; offset < (6) + 1; ++offset) {
-        pencil[IDX(offset)] = arr[IDX(vertexIdx.x, vertexIdx.y, vertexIdx.z + offset - (6) / 2)];
+        pencil[IDX(offset)] = getData(vertexIdx, {0,0,offset - (6) / 2}, arr);//arr[IDX(vertexIdx.x, vertexIdx.y, vertexIdx.z + offset - (6) / 2)];
     }
     return second_derivative(pencil, AC_inv_dsz);
 }
@@ -204,7 +237,7 @@ AcReal derzz(int3 vertexIdx, const AcReal *__restrict__ arr) {
 
 static __device__ __forceinline__
 AcReal preprocessed_value(const int3 &vertexIdx, const int3 &globalVertexIdx, const AcReal *__restrict__ vertex) {
-    return vertex[IDX(vertexIdx)];
+    return getData(vertexIdx, {0,0,0}, vertex);//vertex[IDX(vertexIdx)];
 }
 
 
@@ -230,10 +263,28 @@ static __device__ __forceinline__
 AcRealData read_data(const int3 &vertexIdx, const int3 &globalVertexIdx, AcReal *__restrict__ buf) {
     AcRealData data;
 
+    __shared__ double sharedBuf[(32+6)*(4+6)*(4+6)];
 
-    data.value = preprocessed_value(vertexIdx, globalVertexIdx, buf);
-    data.gradient = preprocessed_gradient(vertexIdx, globalVertexIdx, buf);
-    data.hessian = preprocessed_hessian(vertexIdx, globalVertexIdx, buf);
+    for (size_t x = threadIdx.x; x < 32+6; x += 32)
+    {
+        for (size_t y = threadIdx.y; y < 4+6; y += 4)
+        {
+            for (size_t z = threadIdx.z; z < 4+6; z += 4)
+            {
+                int sharedInd = x + (y * (32+6)) + (z *(32+6)*(4+6));
+                int targetX = vertexIdx.x + x -3;
+                int targetY = vertexIdx.y + y -3;
+                int targetZ = vertexIdx.z + z -3;
+                sharedBuf[sharedInd] = buf[IDX(vertexIdx.x + x -3, vertexIdx.y + y -3, vertexIdx.z + z -3)];
+            }
+        }
+    }
+    __syncthreads();
+    
+
+    data.value = preprocessed_value(vertexIdx, globalVertexIdx, sharedBuf);
+    data.gradient = preprocessed_gradient(vertexIdx, globalVertexIdx, sharedBuf);
+    data.hessian = preprocessed_hessian(vertexIdx, globalVertexIdx, sharedBuf);
     return data;
 }
 
