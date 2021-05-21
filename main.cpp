@@ -97,11 +97,13 @@ AcReal getData(int3 vertexIdx, int3 vertexOffsets, const AcReal *__restrict__ ar
 
 #ifdef SHAREDCACHE
     // if shared 
-    vertexIdxReal.x = threadIdx.x +3;
-    vertexIdxReal.y = threadIdx.y +3;
-    vertexIdxReal.z = threadIdx.z +3;
+    vertexIdxReal.x = threadIdx.x + 3;
+    vertexIdxReal.y = threadIdx.y + 3;
+    vertexIdxReal.z = threadIdx.z + 3;
 
-    return arr[IDX_shared(vertexIdxReal.x + vertexOffsets.x, vertexIdxReal.y + vertexOffsets.y, vertexIdxReal.z + vertexOffsets.z)];
+    AcReal ret = arr[IDX_shared(vertexIdxReal.x + vertexOffsets.x, vertexIdxReal.y + vertexOffsets.y, vertexIdxReal.z + vertexOffsets.z)];
+    
+    return ret;
 
 #else
     // if not shared
@@ -269,7 +271,7 @@ static __device__ __forceinline__
 AcRealData read_data(const int3 &vertexIdx, const int3 &globalVertexIdx, AcReal *__restrict__ buf) {
     AcRealData data;
 
-    __shared__ double sharedBuf[(xThreads+6)*(yThreads+6)*(zThreads+6)];
+    __shared__ AcReal sharedBuf[(xThreads+6)*(yThreads+6)*(zThreads+6)];
 
     int idxLocal = threadIdx.x + (threadIdx.y * xThreads) + (threadIdx.z * xThreads * yThreads);
 
@@ -282,7 +284,8 @@ AcRealData read_data(const int3 &vertexIdx, const int3 &globalVertexIdx, AcReal 
         int targetX = vertexIdx.x + x -3;
         int targetY = vertexIdx.y + y -3;
         int targetZ = vertexIdx.z + z -3;
-        if(targetX < AC_mx && targetY < AC_my && targetZ < AC_mz)
+        
+        //if(targetX < AC_mx && targetY < AC_my && targetZ < AC_mz)
         {
             sharedBuf[i] = buf[IDX(targetX, targetY, targetZ)];
         }
@@ -433,7 +436,7 @@ int main() {
         std::cout << "elapsed time: " << elapsed_seconds.count() << "s\n";
             cudaMemcpy(hostBuf, outBuf, sizeof(AcReal)*count, cudaMemcpyDefault);
 
-    std::cout << hostBuf[12413431] << " " << hostBuf[627389] << std::endl;
+    std::cout << hostBuf[4241341] << " " << hostBuf[627389] << std::endl;
 
     double sum = 0;
     for (size_t i = 0; i < count; i++)
