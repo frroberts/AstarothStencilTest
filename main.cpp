@@ -271,6 +271,7 @@ static __device__ __forceinline__
 AcRealData read_data(const int3 &vertexIdx, const int3 &globalVertexIdx, AcReal *__restrict__ buf) {
     AcRealData data;
 
+#ifdef SHAREDCACHE
     __shared__ AcReal sharedBuf[(xThreads+6)*(yThreads+6)*(zThreads+6)];
 
 
@@ -293,7 +294,7 @@ AcRealData read_data(const int3 &vertexIdx, const int3 &globalVertexIdx, AcReal 
     }
 
 #else
-    
+    // yes these are ordered wrong ... avoids bank conflicts ?
     for (size_t x = threadIdx.x; x < xThreads+6; x += xThreads)
     {
         for (size_t y = threadIdx.y; y < yThreads+6; y += yThreads)
@@ -310,6 +311,7 @@ AcRealData read_data(const int3 &vertexIdx, const int3 &globalVertexIdx, AcReal 
             }
         }
     }
+#endif
 #endif
 
 /*
