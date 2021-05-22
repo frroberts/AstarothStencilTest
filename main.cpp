@@ -34,8 +34,8 @@ typedef struct {
 
 struct AcRealData
 {
-    double value;
-    double3 gradient;
+    AcReal value;
+    AcReal3 gradient;
     AcMatrix hessian;
 };
 
@@ -43,9 +43,9 @@ struct AcRealData
 __constant__ int AC_mx;
 __constant__ int AC_my;
 __constant__ int AC_mz;
-__constant__ double AC_inv_dsx;
-__constant__ double AC_inv_dsy;
-__constant__ double AC_inv_dsz;
+__constant__ AcReal AC_inv_dsx;
+__constant__ AcReal AC_inv_dsy;
+__constant__ AcReal AC_inv_dsz;
 __constant__ int3 start;
 __constant__ int3 end;
 
@@ -273,22 +273,22 @@ AcRealData read_data(const int3 &vertexIdx, const int3 &globalVertexIdx, AcReal 
 
     __shared__ AcReal sharedBuf[(xThreads+6)*(yThreads+6)*(zThreads+6)];
 
+
     int idxLocal = threadIdx.x + (threadIdx.y * xThreads) + (threadIdx.z * xThreads * yThreads);
 
     for (size_t i = idxLocal; i < (xThreads+6) * (yThreads+6) * (zThreads+6); i += xThreads * yThreads * zThreads)
     {
-        int x = i % xThreads;
-        int y = (i / xThreads)%yThreads;
-        int z = (i / (xThreads*yThreads))%zThreads;
+        int x = i % (xThreads+6);
+        int y = (i / (xThreads+6))%(yThreads+6);
+        int z = (i / ((xThreads+6)*(yThreads+6)))%(zThreads+6);
         //int sharedInd = x + (y * (xThreads+6)) + (z *(xThreads+6)*(yThreads+6));
-        int targetX = vertexIdx.x + x -3;
-        int targetY = vertexIdx.y + y -3;
-        int targetZ = vertexIdx.z + z -3;
+        int targetX = vertexIdx.x + x - 3;
+        int targetY = vertexIdx.y + y - 3;
+        int targetZ = vertexIdx.z + z - 3;
         
-        //if(targetX < AC_mx && targetY < AC_my && targetZ < AC_mz)
-        {
-            sharedBuf[i] = buf[IDX(targetX, targetY, targetZ)];
-        }
+        if(targetX >= AC_mx || targetY >= AC_my || targetZ >= AC_mz)
+            continue;
+        sharedBuf[i] = buf[IDX(targetX, targetY, targetZ)];
     }
 
     
@@ -305,7 +305,7 @@ AcRealData read_data(const int3 &vertexIdx, const int3 &globalVertexIdx, AcReal 
                 int targetY = vertexIdx.y + y -3;
                 int targetZ = vertexIdx.z + z -3;
                 if(targetX < AC_mx && targetY < AC_my && targetZ < AC_mz)
-                    sharedBuf[sharedInd] = buf[IDX(vertexIdx.x + x -3, vertexIdx.y + y -3, vertexIdx.z + z -3)];
+                    sharedBuf[sharedInd] = 1;//buf[IDX(targetX, targetY, targetZ)];
             }
         }
     }
@@ -421,6 +421,8 @@ int main() {
     
     cudaMemcpyToSymbol(start, &h_start, sizeof(int3), 0, cudaMemcpyHostToDevice);
     cudaMemcpyToSymbol(end, &h_end, sizeof(int3), 0, cudaMemcpyHostToDevice);
+
+    cudaDeviceSetSharedMemConfig(cudaSharedMemBankSizeEightByte);
 
 
     dim3 block = {xThreads,yThreads,zThreads};
