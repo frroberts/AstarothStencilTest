@@ -275,7 +275,8 @@ AcRealData read_data(const int3 &vertexIdx, const int3 &globalVertexIdx, AcReal 
 
 
     int idxLocal = threadIdx.x + (threadIdx.y * xThreads) + (threadIdx.z * xThreads * yThreads);
-/*
+#ifdef FLATFILL
+
     for (size_t i = idxLocal; i < (xThreads+6) * (yThreads+6) * (zThreads+6); i += xThreads * yThreads * zThreads)
     {
         int x = i % (xThreads+6);
@@ -290,8 +291,8 @@ AcRealData read_data(const int3 &vertexIdx, const int3 &globalVertexIdx, AcReal 
             continue;
         sharedBuf[i] = buf[IDX(targetX, targetY, targetZ)];
     }
-*/
-    
+
+#else
     
     for (size_t x = threadIdx.x; x < xThreads+6; x += xThreads)
     {
@@ -303,12 +304,13 @@ AcRealData read_data(const int3 &vertexIdx, const int3 &globalVertexIdx, AcReal 
                 int targetX = (blockIdx.x * blockDim.x) + x;
                 int targetY = (blockIdx.y * blockDim.y) + y;
                 int targetZ = (blockIdx.z * blockDim.z) + z;
-                if(targetX < AC_mx && targetY < AC_my && targetZ < AC_mz)
-                    sharedBuf[sharedInd] = 1;//buf[IDX(targetX, targetY, targetZ)];
+                if(targetX >= AC_mx || targetY >= AC_my || targetZ >= AC_mz)
+                    continue;
+                sharedBuf[sharedInd] = buf[IDX(targetX, targetY, targetZ)];
             }
         }
     }
-    
+#endif
 
 /*
    for (size_t i = 0; i < (xThreads+6)*(yThreads+6)*(zThreads+6); i++)
@@ -378,9 +380,9 @@ __global__ void filler(AcReal* __restrict__ buf, AcReal* __restrict__ bufOut, in
 int main() {
     //
 
-    int h_AC_mx = 256;
-    int h_AC_my = 256;
-    int h_AC_mz = 256;
+    int h_AC_mx = 512;
+    int h_AC_my = 512;
+    int h_AC_mz = 512;
     double h_AC_inv_dsx = 1;
     double h_AC_inv_dsy = 1;
     double h_AC_inv_dsz = 1;
