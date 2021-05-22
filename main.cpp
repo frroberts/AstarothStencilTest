@@ -275,7 +275,7 @@ AcRealData read_data(const int3 &vertexIdx, const int3 &globalVertexIdx, AcReal 
 
 
     int idxLocal = threadIdx.x + (threadIdx.y * xThreads) + (threadIdx.z * xThreads * yThreads);
-
+/*
     for (size_t i = idxLocal; i < (xThreads+6) * (yThreads+6) * (zThreads+6); i += xThreads * yThreads * zThreads)
     {
         int x = i % (xThreads+6);
@@ -290,10 +290,9 @@ AcRealData read_data(const int3 &vertexIdx, const int3 &globalVertexIdx, AcReal 
             continue;
         sharedBuf[i] = buf[IDX(targetX, targetY, targetZ)];
     }
-
+*/
     
-    /*
-    // broken ....
+    
     for (size_t x = threadIdx.x; x < xThreads+6; x += xThreads)
     {
         for (size_t y = threadIdx.y; y < yThreads+6; y += yThreads)
@@ -301,15 +300,15 @@ AcRealData read_data(const int3 &vertexIdx, const int3 &globalVertexIdx, AcReal 
             for (size_t z = threadIdx.z; z < zThreads+6; z += zThreads)
             {
                 int sharedInd = x + (y * (xThreads+6)) + (z *(xThreads+6)*(yThreads+6));
-                int targetX = vertexIdx.x + x -3;
-                int targetY = vertexIdx.y + y -3;
-                int targetZ = vertexIdx.z + z -3;
+                int targetX = (blockIdx.x * blockDim.x) + x;
+                int targetY = (blockIdx.y * blockDim.y) + y;
+                int targetZ = (blockIdx.z * blockDim.z) + z;
                 if(targetX < AC_mx && targetY < AC_my && targetZ < AC_mz)
                     sharedBuf[sharedInd] = 1;//buf[IDX(targetX, targetY, targetZ)];
             }
         }
     }
-    */
+    
 
 /*
    for (size_t i = 0; i < (xThreads+6)*(yThreads+6)*(zThreads+6); i++)
@@ -422,7 +421,9 @@ int main() {
     cudaMemcpyToSymbol(start, &h_start, sizeof(int3), 0, cudaMemcpyHostToDevice);
     cudaMemcpyToSymbol(end, &h_end, sizeof(int3), 0, cudaMemcpyHostToDevice);
 
-    cudaDeviceSetSharedMemConfig(cudaSharedMemBankSizeEightByte);
+    // cudaDeviceSetSharedMemConfig(cudaSharedMemBankSizeEightByte);
+
+    cudaDeviceSetCacheConfig(cudaFuncCachePreferShared);
 
 
     dim3 block = {xThreads,yThreads,zThreads};
