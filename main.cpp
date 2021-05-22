@@ -282,9 +282,9 @@ AcRealData read_data(const int3 &vertexIdx, const int3 &globalVertexIdx, AcReal 
         int y = (i / (xThreads+6))%(yThreads+6);
         int z = (i / ((xThreads+6)*(yThreads+6)))%(zThreads+6);
         //int sharedInd = x + (y * (xThreads+6)) + (z *(xThreads+6)*(yThreads+6));
-        int targetX = vertexIdx.x + x - 3;
-        int targetY = vertexIdx.y + y - 3;
-        int targetZ = vertexIdx.z + z - 3;
+        int targetX = (blockIdx.x * blockDim.x) + x;
+        int targetY = (blockIdx.y * blockDim.y) + y;
+        int targetZ = (blockIdx.z * blockDim.z) + z;
         
         if(targetX >= AC_mx || targetY >= AC_my || targetZ >= AC_mz)
             continue;
