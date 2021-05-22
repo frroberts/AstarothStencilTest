@@ -425,7 +425,7 @@ int main() {
 
     // cudaDeviceSetSharedMemConfig(cudaSharedMemBankSizeEightByte);
 
-    cudaDeviceSetCacheConfig(cudaFuncCachePreferShared);
+    // cudaDeviceSetCacheConfig(cudaFuncCachePreferShared);
 
 
     dim3 block = {xThreads,yThreads,zThreads};
