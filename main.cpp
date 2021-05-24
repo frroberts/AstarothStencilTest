@@ -290,6 +290,7 @@ AcRealData read_data(const int3 &vertexIdx, const int3 &globalVertexIdx, AcReal 
             continue;
         sharedBuf[i] = buf[IDX(targetX, targetY, targetZ)];
     }
+#elif HYBRIDFILL
 
 #else
     // yes these are ordered wrong ... avoids bank conflicts ?
@@ -383,12 +384,14 @@ __global__ void filler(AcReal* __restrict__ buf, AcReal* __restrict__ bufOut, in
     bufOut[idx] = 0;
 }
 
-int main() {
+
+
+int main(int argc, char const *argv[]) {
     //
 
-    int h_AC_mx = 512;
-    int h_AC_my = 512;
-    int h_AC_mz = 512;
+    int h_AC_mx = std::atoi(argv[1]);
+    int h_AC_my = std::atoi(argv[2]);
+    int h_AC_mz = std::atoi(argv[3]);
     double h_AC_inv_dsx = 1;
     double h_AC_inv_dsy = 1;
     double h_AC_inv_dsz = 1;
