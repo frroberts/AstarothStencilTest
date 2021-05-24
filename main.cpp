@@ -4,8 +4,6 @@
 
 #include <cuda_runtime_api.h>
 
-#define SHAREDCACHE_no
-
 /*
 struct int3{
     int x;
@@ -48,6 +46,28 @@ __constant__ AcReal AC_inv_dsy;
 __constant__ AcReal AC_inv_dsz;
 __constant__ int3 start;
 __constant__ int3 end;
+
+__device__
+void storeDouble(int ind, double val, double *ptr, int offset)
+{
+    uint32_t *ptr4 = reinterpret_cast<uint32_t*>(ptr);
+
+    uint32_t lower = (uint64_t)(val);
+    uint32_t upper = (uint64_t)(val)>> 32;
+
+    ptr4[ind] = lower;
+    ptr4[ind+offset+1] = upper;
+}
+
+
+__device__
+double loadDouble(int ind, const double* ptr, int offset)
+{
+    const uint32_t *ptr4 = reinterpret_cast<const uint32_t*>(ptr);
+    double v2 = (double)(ptr4[ind] | ((uint64_t)(ptr4[ind+offset+1])<<32));
+    return v2;
+}
+
 
 static __device__
 size_t acVertexBufferIdx(const int i, const int j, const int k)
@@ -100,9 +120,11 @@ AcReal getData(int3 vertexIdx, int3 vertexOffsets, const AcReal *__restrict__ ar
     vertexIdxReal.x = threadIdx.x + 3;
     vertexIdxReal.y = threadIdx.y + 3;
     vertexIdxReal.z = threadIdx.z + 3;
-
+#ifdef STORE32
+    AcReal ret = loadDouble(IDX_shared(vertexIdxReal.x + vertexOffsets.x, vertexIdxReal.y + vertexOffsets.y, vertexIdxReal.z + vertexOffsets.z), arr, (xThreads+6)*(yThreads+6)*(zThreads+6));
+#else    
     AcReal ret = arr[IDX_shared(vertexIdxReal.x + vertexOffsets.x, vertexIdxReal.y + vertexOffsets.y, vertexIdxReal.z + vertexOffsets.z)];
-    
+#endif
     return ret;
 
 #else
@@ -368,7 +390,11 @@ AcRealData read_data(const int3 &vertexIdx, const int3 &globalVertexIdx, AcReal 
         
         if(targetX >= AC_mx || targetY >= AC_my || targetZ >= AC_mz)
             continue;
+#ifdef STORE32
+        storeDouble(i, buf[IDX(targetX, targetY, targetZ)], sharedBuf, (xThreads+6)*(yThreads+6)*(zThreads+6));
+#else
         sharedBuf[i] = buf[IDX(targetX, targetY, targetZ)];
+#endif
     }
 #elif HYBRIDFILL
 
@@ -386,7 +412,11 @@ AcRealData read_data(const int3 &vertexIdx, const int3 &globalVertexIdx, AcReal 
                 int targetZ = (blockIdx.z * blockDim.z) + z;
                 if(targetX >= AC_mx || targetY >= AC_my || targetZ >= AC_mz)
                     continue;
+#ifdef STORE32
+                storeDouble(sharedInd, buf[IDX(targetX, targetY, targetZ)], sharedBuf, (xThreads+6)*(yThreads+6)*(zThreads+6));
+#else
                 sharedBuf[sharedInd] = buf[IDX(targetX, targetY, targetZ)];
+#endif
             }
         }
     }
@@ -409,19 +439,21 @@ AcRealData read_data(const int3 &vertexIdx, const int3 &globalVertexIdx, AcReal 
     if (!(vertexIdx.x >= end.x || vertexIdx.y >= end.y || vertexIdx.z >= end.z))
     {
 #ifdef SHAREDCACHE
+#ifdef PROCALLINONE
         preprocessed_data(vertexIdx, globalVertexIdx, sharedBuf, data);
-/*
+#else
         data.value = preprocessed_value(vertexIdx, globalVertexIdx, sharedBuf);
         data.gradient = preprocessed_gradient(vertexIdx, globalVertexIdx, sharedBuf);
         data.hessian = preprocessed_hessian(vertexIdx, globalVertexIdx, sharedBuf);
-        */
+#endif
 #else
+#ifdef PROCALLINONE
         preprocessed_data(vertexIdx, globalVertexIdx, buf, data);
-        /*
+#else
         data.value = preprocessed_value(vertexIdx, globalVertexIdx, buf);
         data.gradient = preprocessed_gradient(vertexIdx, globalVertexIdx, buf);
         data.hessian = preprocessed_hessian(vertexIdx, globalVertexIdx, buf);
-        */
+#endif
 #endif
     }
     return data;
@@ -437,7 +469,7 @@ __global__ void kern(AcReal* __restrict__ buf, AcReal* __restrict__ bufOut){
                                   threadIdx.z + blockIdx.z * blockDim.z + start.z};
 
     #ifdef SHAREDCACHE
-    __shared__ AcReal sharedBuf[(xThreads+6)*(yThreads+6)*(zThreads+6)];
+    __shared__ AcReal sharedBuf[(xThreads+6)*(yThreads+6)*(zThreads+6)+1];
     #else
     AcReal *sharedBuf; // leave uninitialized 
     #endif
