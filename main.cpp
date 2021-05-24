@@ -47,6 +47,10 @@ __constant__ AcReal AC_inv_dsz;
 __constant__ int3 start;
 __constant__ int3 end;
 
+__constant__ int xModLut[256];
+__constant__ int yModLut[256];
+__constant__ int zModLut[256];
+
 __device__
 void storeDouble(int ind, double val, double *ptr, int offset)
 {
@@ -380,9 +384,16 @@ AcRealData read_data(const int3 &vertexIdx, const int3 &globalVertexIdx, AcReal 
 
     for (size_t i = idxLocal; i < (xThreads+6) * (yThreads+6) * (zThreads+6); i += xThreads * yThreads * zThreads)
     {
+#ifdef MODLUT
+        int x = xModLut[i&0xff];
+        int y = yModLut[(i / (xThreads+6))&0xff];
+        int z = (i / ((xThreads+6)*(yThreads+6)));
+#else
         int x = i % (xThreads+6);
         int y = (i / (xThreads+6))%(yThreads+6);
-        int z = (i / ((xThreads+6)*(yThreads+6)))%(zThreads+6);
+        int z = (i / ((xThreads+6)*(yThreads+6)));
+#endif
+
         //int sharedInd = x + (y * (xThreads+6)) + (z *(xThreads+6)*(yThreads+6));
         int targetX = (blockIdx.x * blockDim.x) + x;
         int targetY = (blockIdx.y * blockDim.y) + y;
@@ -549,6 +560,24 @@ int main(int argc, char const *argv[]) {
     
     cudaMemcpyToSymbol(start, &h_start, sizeof(int3), 0, cudaMemcpyHostToDevice);
     cudaMemcpyToSymbol(end, &h_end, sizeof(int3), 0, cudaMemcpyHostToDevice);
+
+    int lut[256];
+    for (size_t i = 0; i < 256; i++)
+    {
+        lut[i] = i%xThreads;
+    }
+    cudaMemcpyToSymbol(xModLut, &lut, sizeof(int3), 0, cudaMemcpyHostToDevice);
+    for (size_t i = 0; i < 256; i++)
+    {
+        lut[i] = i%yThreads;
+    }
+    cudaMemcpyToSymbol(yModLut, &lut, sizeof(int3), 0, cudaMemcpyHostToDevice);
+    for (size_t i = 0; i < 256; i++)
+    {
+        lut[i] = i%zThreads;
+    }
+    cudaMemcpyToSymbol(zModLut, &lut, sizeof(int3), 0, cudaMemcpyHostToDevice);
+    
 
     // cudaDeviceSetSharedMemConfig(cudaSharedMemBankSizeEightByte);
 
