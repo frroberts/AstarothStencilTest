@@ -268,12 +268,10 @@ AcMatrix preprocessed_hessian(const int3 &vertexIdx, const int3 &globalVertexIdx
 // read function
 
 static __device__ __forceinline__
-AcRealData read_data(const int3 &vertexIdx, const int3 &globalVertexIdx, AcReal *__restrict__ buf) {
+AcRealData read_data(const int3 &vertexIdx, const int3 &globalVertexIdx, AcReal *__restrict__ buf, AcReal *__restrict__ sharedBuf) {
     AcRealData data;
 
 #ifdef SHAREDCACHE
-    __shared__ AcReal sharedBuf[(xThreads+6)*(yThreads+6)*(zThreads+6)];
-
 
     int idxLocal = threadIdx.x + (threadIdx.y * xThreads) + (threadIdx.z * xThreads * yThreads);
 #ifdef FLATFILL
@@ -351,13 +349,19 @@ __global__ void kern(AcReal* __restrict__ buf, AcReal* __restrict__ bufOut){
                                   threadIdx.y + blockIdx.y * blockDim.y + start.y,
                                   threadIdx.z + blockIdx.z * blockDim.z + start.z};
 
+    #ifdef SHAREDCACHE
+    __shared__ AcReal sharedBuf[(xThreads+6)*(yThreads+6)*(zThreads+6)];
+    #else
+    AcReal *sharedBuf; // leave uninitialized 
+    #endif
+
     // we cant exit the threads since i need them to fill the shared buffer
     //if (vertexIdx.x >= end.x || vertexIdx.y >= end.y || vertexIdx.z >= end.z)
     //    return;
 
     const int idx = IDX(vertexIdx.x, vertexIdx.y, vertexIdx.z);
 
-    AcRealData dat = read_data(vertexIdx, vertexIdx, buf);
+    AcRealData dat = read_data(vertexIdx, vertexIdx, buf, sharedBuf);
 
     if (!(vertexIdx.x >= end.x || vertexIdx.y >= end.y || vertexIdx.z >= end.z))
     {
