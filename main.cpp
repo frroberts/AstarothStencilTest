@@ -386,12 +386,14 @@ AcRealData read_data(const int3 &vertexIdx, const int3 &globalVertexIdx, AcReal 
     {
 #ifdef MODLUT
         int x = xModLut[i&0xff];
-        int y = yModLut[(i / (xThreads+6))&0xff];
-        int z = (i / ((xThreads+6)*(yThreads+6)));
+        int xDiv = (i / (xThreads+6));
+        int y = yModLut[xDiv&0xff];
+        int z = (xDiv/(yThreads+6));
 #else
         int x = i % (xThreads+6);
-        int y = (i / (xThreads+6))%(yThreads+6);
-        int z = (i / ((xThreads+6)*(yThreads+6)));
+        int xDiv = (i / (xThreads+6));
+        int y = (xDiv)%(yThreads+6);
+        int z = (xDiv/(yThreads+6));
 #endif
 
         //int sharedInd = x + (y * (xThreads+6)) + (z *(xThreads+6)*(yThreads+6));
