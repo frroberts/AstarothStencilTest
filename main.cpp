@@ -391,7 +391,6 @@ AcRealData read_data(const int3 &vertexIdx, const int3 &globalVertexIdx, AcReal 
     {
 #ifdef MODLUT
 #pragma message "MODLUT"
-// broken ?
         int x = xModLut[i&0xff];
         int xDiv = (i / (xThreads+6));
         int y = yModLut[xDiv&0xff];
