@@ -4,6 +4,7 @@
 
 #include <cuda_runtime_api.h>
 #include <random>
+#include <iomanip> 
 
 /*
 struct int3{
@@ -51,6 +52,11 @@ __constant__ int3 end;
 __constant__ int xModLut[256];
 __constant__ int yModLut[256];
 __constant__ int zModLut[256];
+
+__constant__ int xIndLut[(xThreads+6)*(yThreads+6)*(zThreads+6)];
+__constant__ int yIndLut[(xThreads+6)*(yThreads+6)*(zThreads+6)];
+__constant__ int zIndLut[(xThreads+6)*(yThreads+6)*(zThreads+6)];
+
 
 __device__
 void storeDouble(int ind, double val, double *ptr, int offset)
@@ -316,8 +322,7 @@ void preprocessed_data(const int3 &vertexIdx, const int3 &globalVertexIdx, const
         pencil_b[IDX(offset)] = getData(vertexIdx, {offset - (6) / 2,(6) / 2 - offset,0}, vertex);//arr[IDX(vertexIdx.x + offset - (6) / 2, vertexIdx.y + (6) / 2 - offset, vertexIdx.z)];
     }
     data.hessian.row[IDX(0)].y =  cross_derivative(pencil, pencil_b, AC_inv_dsx, AC_inv_dsy);//derxy(vertexIdx, vertex);
-
-
+    data.hessian.row[IDX(1)].x = data.hessian.row[IDX(0)].y;
 
     for (int offset = 0; offset < (6) + 1; ++offset) {
         if(offset == 3)
@@ -330,6 +335,7 @@ void preprocessed_data(const int3 &vertexIdx, const int3 &globalVertexIdx, const
         pencil_b[IDX(offset)] = getData(vertexIdx, {offset - (6) / 2,0,(6) / 2 - offset}, vertex);//arr[IDX(vertexIdx.x + offset - (6) / 2, vertexIdx.y, vertexIdx.z + (6) / 2 - offset)];
     }
     data.hessian.row[IDX(0)].z = cross_derivative(pencil, pencil_b, AC_inv_dsx, AC_inv_dsz);;//derxz(vertexIdx, vertex);
+    data.hessian.row[IDX(2)].x = data.hessian.row[IDX(0)].z;
 
 
     for (int offset = 0; offset < (6) + 1; ++offset) {
@@ -343,10 +349,8 @@ void preprocessed_data(const int3 &vertexIdx, const int3 &globalVertexIdx, const
         pencil_b[IDX(offset)] = getData(vertexIdx, {0,offset - (6) / 2,(6) / 2 - offset}, vertex);//arr[IDX(vertexIdx.x, vertexIdx.y + offset - (6) / 2, vertexIdx.z + (6) / 2 - offset)];
     }
     data.hessian.row[IDX(1)].z = cross_derivative(pencil, pencil_b, AC_inv_dsy, AC_inv_dsz);;//deryz(vertexIdx, vertex);
-
-    data.hessian.row[IDX(1)].x = data.hessian.row[IDX(0)].y;
-    data.hessian.row[IDX(2)].x = data.hessian.row[IDX(0)].z;
     data.hessian.row[IDX(2)].y = data.hessian.row[IDX(1)].z;
+
     return;
 }
 
@@ -386,17 +390,26 @@ AcRealData read_data(const int3 &vertexIdx, const int3 &globalVertexIdx, AcReal 
     for (size_t i = idxLocal; i < (xThreads+6) * (yThreads+6) * (zThreads+6); i += xThreads * yThreads * zThreads)
     {
 #ifdef MODLUT
+#pragma message "MODLUT"
+// broken ?
         int x = xModLut[i&0xff];
         int xDiv = (i / (xThreads+6));
         int y = yModLut[xDiv&0xff];
         int z = (xDiv/(yThreads+6));
 #elif FLOATIND
+#pragma message "FLOATIND"
         int xDiv = ((float)i / (float)(xThreads+6));
         int yDiv = ((float)xDiv/(float)(yThreads+6));
         int x = i - (xDiv * (xThreads+6));
         int y = xDiv - ((yDiv)*(yThreads+6));
         int z = yDiv;
+#elif INDLUT
+#pragma message "INDLUT"
+        int x = xIndLut[i];
+        int y = yIndLut[i];
+        int z = zIndLut[i];
 #else
+#pragma message "NORMAL"
         int xDiv = (i / (xThreads+6));
         int x = i % (xThreads+6);
         int y = (xDiv)%(yThreads+6);
@@ -591,18 +604,33 @@ int main(int argc, char const *argv[]) {
     {
         lut[i] = i%xThreads;
     }
-    cudaMemcpyToSymbol(xModLut, &lut, sizeof(int3), 0, cudaMemcpyHostToDevice);
+    cudaMemcpyToSymbol(xModLut, &lut, sizeof(int)*256, 0, cudaMemcpyHostToDevice);
     for (size_t i = 0; i < 256; i++)
     {
         lut[i] = i%yThreads;
     }
-    cudaMemcpyToSymbol(yModLut, &lut, sizeof(int3), 0, cudaMemcpyHostToDevice);
+    cudaMemcpyToSymbol(yModLut, &lut, sizeof(int)*256, 0, cudaMemcpyHostToDevice);
     for (size_t i = 0; i < 256; i++)
     {
         lut[i] = i%zThreads;
     }
-    cudaMemcpyToSymbol(zModLut, &lut, sizeof(int3), 0, cudaMemcpyHostToDevice);
+    cudaMemcpyToSymbol(zModLut, &lut, sizeof(int)*256, 0, cudaMemcpyHostToDevice);
     
+
+    
+    int xIndLut_h[(xThreads+6) * (yThreads+6) * (zThreads+6)];
+    int yIndLut_h[(xThreads+6) * (yThreads+6) * (zThreads+6)];
+    int zIndLut_h[(xThreads+6) * (yThreads+6) * (zThreads+6)];
+    for (size_t i = 0; i < (xThreads+6) * (yThreads+6) * (zThreads+6); i += 1)
+    {
+        int xDiv = (i / (xThreads+6));
+        xIndLut_h[i] = i % (xThreads+6);
+        yIndLut_h[i] = (xDiv)%(yThreads+6);
+        zIndLut_h[i] = (xDiv/(yThreads+6));
+    }
+    cudaMemcpyToSymbol(xIndLut, &xIndLut_h, sizeof(int)*(xThreads+6) * (yThreads+6) * (zThreads+6), 0, cudaMemcpyHostToDevice);
+    cudaMemcpyToSymbol(yIndLut, &yIndLut_h, sizeof(int)*(xThreads+6) * (yThreads+6) * (zThreads+6), 0, cudaMemcpyHostToDevice);
+    cudaMemcpyToSymbol(zIndLut, &zIndLut_h, sizeof(int)*(xThreads+6) * (yThreads+6) * (zThreads+6), 0, cudaMemcpyHostToDevice);
 
     // cudaDeviceSetSharedMemConfig(cudaSharedMemBankSizeEightByte);
 
@@ -630,7 +658,7 @@ int main(int argc, char const *argv[]) {
         sum += hostBuf[i];
     }
 
-    std::cout << sum << std::endl;
+    std::cout << std::setprecision(12) << sum << std::endl;
     
     }
 
