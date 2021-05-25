@@ -3,6 +3,7 @@
 #include <chrono>
 
 #include <cuda_runtime_api.h>
+#include <random>
 
 /*
 struct int3{
@@ -389,11 +390,23 @@ AcRealData read_data(const int3 &vertexIdx, const int3 &globalVertexIdx, AcReal 
         int xDiv = (i / (xThreads+6));
         int y = yModLut[xDiv&0xff];
         int z = (xDiv/(yThreads+6));
+#elif FLOATIND
+        int xDiv = ((float)i / (float)(xThreads+6));
+        int yDiv = ((float)xDiv/(float)(yThreads+6));
+        int x = i - (xDiv * (xThreads+6));
+        int y = xDiv - ((yDiv)*(yThreads+6));
+        int z = yDiv;
 #else
-        int x = i % (xThreads+6);
         int xDiv = (i / (xThreads+6));
+        int x = i % (xThreads+6);
         int y = (xDiv)%(yThreads+6);
         int z = (xDiv/(yThreads+6));
+/*
+        int yDiv = (xDiv/(yThreads+6));
+        int x = i - (xDiv * (xThreads+6));
+        int y = xDiv - ((yDiv)*(yThreads+6));
+        int z = yDiv;
+        */
 #endif
 
         //int sharedInd = x + (y * (xThreads+6)) + (z *(xThreads+6)*(yThreads+6));
@@ -534,12 +547,22 @@ int main(int argc, char const *argv[]) {
     AcReal *inBuf;
     AcReal *outBuf;
     AcReal *hostBuf = new AcReal[count];
+    AcReal *hostIn = new AcReal[count];
+
+
+    std::mt19937 gen(2);
+    std::uniform_real_distribution<> dis(1.0, 2.0);
+    for (int i = 0; i < count; ++i) {
+        hostIn[i] = dis(gen);
+    }
 
     cudaMalloc((void**)&inBuf, count * sizeof(AcReal));
     cudaMalloc((void**)&outBuf, count * sizeof(AcReal));
 
     filler<<<1+(count/512), 512>>>(inBuf, outBuf, count);
     
+    cudaMemcpy(inBuf, hostIn, sizeof(AcReal)*count, cudaMemcpyDefault);   
+
     h_start.x = 3;
     h_start.y = 3;
     h_start.z = 3;
