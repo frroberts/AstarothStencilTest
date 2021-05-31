@@ -1,4 +1,11 @@
+// should replace user_kernels.h
+// kernel launch needs to be done with a threadblock size of {xThreadx, yThreads, zThreads} so the default autotuner needs to be bypassed
+
 #pragma once
+constexpr int xThreads = 16;
+constexpr int yThreads = 8;
+constexpr int zThreads = 4;
+
 static const int AC_nx_DEFAULT_VALUE = 0;
 static const int AC_ny_DEFAULT_VALUE = 0;
 static const int AC_nz_DEFAULT_VALUE = 0;
@@ -91,9 +98,7 @@ cross_derivative(AcReal pencil_a[], AcReal pencil_b[], AcReal inv_ds_a, AcReal i
 }
 
 
-constexpr int xThreads = 16;
-constexpr int yThreads = 8;
-constexpr int zThreads = 4;
+
 
 static __device__
 size_t acVertexBufferIdx_shared(const int i, const int j, const int k)
@@ -228,6 +233,89 @@ AcReal derzz(int3 vertexIdx, const AcReal *__restrict__ arr) {
 static __device__ __forceinline__
 AcReal preprocessed_value(const int3 &vertexIdx, const int3 &globalVertexIdx, const AcReal *__restrict__ vertex) {
     return getData(vertexIdx, {0,0,0}, vertex);//vertex[IDX(vertexIdx)];
+}
+
+
+// helps non share cached, not really when caching in shared memory
+// access functions
+static __device__ __forceinline__
+void preprocessed_data(const int3 &vertexIdx, const int3 &globalVertexIdx, const AcReal *__restrict__ vertex, AcRealData &data) {
+    data.value = getData(vertexIdx, {0,0,0}, vertex);//vertex[IDX(vertexIdx)];
+
+    AcReal pencil[(6) + 1];
+    pencil[3] = data.value;
+    for (int offset = 0; offset < (6) + 1; ++offset) {
+        if(offset == 3)
+            continue;
+        pencil[IDX(offset)] = getData(vertexIdx, {offset - (6) / 2,0,0}, vertex);//arr[IDX(vertexIdx.x + offset - (6) / 2, vertexIdx.y, vertexIdx.z)];
+    }
+    data.gradient.x = first_derivative(pencil, AC_inv_dsx);//derx(vertexIdx, vertex);
+    data.hessian.row[IDX(0)].x = second_derivative(pencil, AC_inv_dsx);//derxx(vertexIdx, vertex);
+
+
+    for (int offset = 0; offset < (6) + 1; ++offset) {
+        if(offset == 3)
+            continue;
+        pencil[IDX(offset)] = getData(vertexIdx, {0,(6) / 2 - offset,0}, vertex);//arr[IDX(vertexIdx.x, vertexIdx.y + offset - (6) / 2, vertexIdx.z)];
+    }
+    data.gradient.y = first_derivative(pencil, AC_inv_dsy);
+    data.hessian.row[IDX(1)].y = second_derivative(pencil, AC_inv_dsy);
+
+
+    for (int offset = 0; offset < (6) + 1; ++offset) {
+        if(offset == 3)
+            continue;
+        pencil[IDX(offset)] = getData(vertexIdx, {0,0,offset - (6) / 2}, vertex);//arr[IDX(vertexIdx.x, vertexIdx.y, vertexIdx.z + offset - (6) / 2)];
+    }
+    data.gradient.z = first_derivative(pencil, AC_inv_dsz);
+    data.hessian.row[IDX(2)].z = second_derivative(pencil, AC_inv_dsz);
+
+
+    for (int offset = 0; offset < (6) + 1; ++offset) {
+        if(offset == 3)
+            continue;
+        pencil[IDX(offset)] = getData(vertexIdx, {offset - (6) / 2,offset - (6) / 2,0}, vertex);//arr[IDX(vertexIdx.x + offset - (6) / 2, vertexIdx.y + offset - (6) / 2, vertexIdx.z)];
+    }
+    AcReal pencil_b[(6) + 1];
+    pencil_b[3] = data.value;
+    for (int offset = 0; offset < (6) + 1; ++offset) {
+        if(offset == 3)
+            continue;
+        pencil_b[IDX(offset)] = getData(vertexIdx, {offset - (6) / 2,(6) / 2 - offset,0}, vertex);//arr[IDX(vertexIdx.x + offset - (6) / 2, vertexIdx.y + (6) / 2 - offset, vertexIdx.z)];
+    }
+    data.hessian.row[IDX(0)].y =  cross_derivative(pencil, pencil_b, AC_inv_dsx, AC_inv_dsy);//derxy(vertexIdx, vertex);
+
+
+
+    for (int offset = 0; offset < (6) + 1; ++offset) {
+        if(offset == 3)
+            continue;
+        pencil[IDX(offset)] = getData(vertexIdx, {offset - (6) / 2,0,offset - (6) / 2}, vertex);//arr[IDX(vertexIdx.x + offset - (6) / 2, vertexIdx.y, vertexIdx.z + offset - (6) / 2)];
+    }
+    for (int offset = 0; offset < (6) + 1; ++offset) {
+        if(offset == 3)
+            continue;
+        pencil_b[IDX(offset)] = getData(vertexIdx, {offset - (6) / 2,0,(6) / 2 - offset}, vertex);//arr[IDX(vertexIdx.x + offset - (6) / 2, vertexIdx.y, vertexIdx.z + (6) / 2 - offset)];
+    }
+    data.hessian.row[IDX(0)].z = cross_derivative(pencil, pencil_b, AC_inv_dsx, AC_inv_dsz);;//derxz(vertexIdx, vertex);
+
+
+    for (int offset = 0; offset < (6) + 1; ++offset) {
+        if(offset == 3)
+            continue;
+        pencil[IDX(offset)] = getData(vertexIdx, {0,offset - (6) / 2,offset - (6) / 2}, vertex);//arr[IDX(vertexIdx.x, vertexIdx.y + offset - (6) / 2, vertexIdx.z + offset - (6) / 2)];
+    }
+    for (int offset = 0; offset < (6) + 1; ++offset) {
+        if(offset == 3)
+            continue;
+        pencil_b[IDX(offset)] = getData(vertexIdx, {0,offset - (6) / 2,(6) / 2 - offset}, vertex);//arr[IDX(vertexIdx.x, vertexIdx.y + offset - (6) / 2, vertexIdx.z + (6) / 2 - offset)];
+    }
+    data.hessian.row[IDX(1)].z = cross_derivative(pencil, pencil_b, AC_inv_dsy, AC_inv_dsz);;//deryz(vertexIdx, vertex);
+
+    data.hessian.row[IDX(1)].x = data.hessian.row[IDX(0)].y;
+    data.hessian.row[IDX(2)].x = data.hessian.row[IDX(0)].z;
+    data.hessian.row[IDX(2)].y = data.hessian.row[IDX(1)].z;
+    return;
 }
 
 static __device__ __forceinline__ AcReal3
@@ -552,9 +640,10 @@ AcRealData read_data(const int3 &vertexIdx, const int3 &globalVertexIdx, AcReal 
 
     for (size_t i = idxLocal; i < (xThreads+6) * (yThreads+6) * (zThreads+6); i += xThreads * yThreads * zThreads)
     {
+        int xDiv = (i / (xThreads+6));
         int x = i % (xThreads+6);
-        int y = (i / (xThreads+6))%(yThreads+6);
-        int z = (i / ((xThreads+6)*(yThreads+6)))%(zThreads+6);
+        int y = (xDiv)%(yThreads+6);
+        int z = (xDiv/(yThreads+6));
         //int sharedInd = x + (y * (xThreads+6)) + (z *(xThreads+6)*(yThreads+6));
         int targetX = (blockIdx.x * blockDim.x) + start.x + x -3;
         int targetY = (blockIdx.y * blockDim.y) + start.y + y -3;
@@ -598,17 +687,24 @@ AcRealData read_data(const int3 &vertexIdx, const int3 &globalVertexIdx, AcReal 
   */ 
     
     __syncthreads();
-    
     if (!(vertexIdx.x >= end.x || vertexIdx.y >= end.y || vertexIdx.z >= end.z))
     {
 #ifdef SHAREDCACHE
+#ifdef PROCALLINONE
+        preprocessed_data(vertexIdx, globalVertexIdx, sharedBuf, data);
+#else
         data.value = preprocessed_value(vertexIdx, globalVertexIdx, sharedBuf);
         data.gradient = preprocessed_gradient(vertexIdx, globalVertexIdx, sharedBuf);
         data.hessian = preprocessed_hessian(vertexIdx, globalVertexIdx, sharedBuf);
+#endif
 #else
-        data.value = preprocessed_value(vertexIdx, globalVertexIdx, buf[handle]);
-        data.gradient = preprocessed_gradient(vertexIdx, globalVertexIdx, buf[handle]);
-        data.hessian = preprocessed_hessian(vertexIdx, globalVertexIdx, buf[handle]);
+#ifdef PROCALLINONE
+        preprocessed_data(vertexIdx, globalVertexIdx, buf, data);
+#else
+        data.value = preprocessed_value(vertexIdx, globalVertexIdx, buf);
+        data.gradient = preprocessed_gradient(vertexIdx, globalVertexIdx, buf);
+        data.hessian = preprocessed_hessian(vertexIdx, globalVertexIdx, buf);
+#endif
 #endif
     }
     return data;

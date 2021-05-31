@@ -395,7 +395,7 @@ AcRealData read_data(const int3 &vertexIdx, const int3 &globalVertexIdx, AcReal 
     int idxLocal = threadIdx.x + (threadIdx.y * xThreads) + (threadIdx.z * xThreads * yThreads);
 #ifdef FLATFILL
 
-    for (size_t i = idxLocal; i < (xThreads+6) * (yThreads+6) * (zThreads+6); i += xThreads * yThreads * zThreads)
+    for (int i = idxLocal; i < (xThreads+6) * (yThreads+6) * (zThreads+6); i += xThreads * yThreads * zThreads)
     {
 #ifdef MODLUT
 #pragma message "MODLUT"
@@ -415,8 +415,16 @@ AcRealData read_data(const int3 &vertexIdx, const int3 &globalVertexIdx, AcReal 
         int x = xIndLut[i];
         int y = yIndLut[i];
         int z = zIndLut[i];
+#elif NOMOD
+#pragma message "NOMOD"
+        int xDiv = (i / (xThreads+6));
+        int yDiv = (xDiv/(yThreads+6));
+        int x = i - (xDiv * (xThreads+6));
+        int y = (xDiv) - (yDiv * (yThreads+6));
+        int z = yDiv;
 #else
 #pragma message "NORMAL"
+
         int xDiv = (i / (xThreads+6));
         int x = i % (xThreads+6);
         int y = (xDiv)%(yThreads+6);
@@ -446,11 +454,11 @@ AcRealData read_data(const int3 &vertexIdx, const int3 &globalVertexIdx, AcReal 
 
 #else
     // yes these are ordered wrong ... but faster this way?
-    for (size_t x = threadIdx.x; x < xThreads+6; x += xThreads)
+    for (int x = threadIdx.x; x < xThreads+6; x += xThreads)
     {
-        for (size_t y = threadIdx.y; y < yThreads+6; y += yThreads)
+        for (int y = threadIdx.y; y < yThreads+6; y += yThreads)
         {
-            for (size_t z = threadIdx.z; z < zThreads+6; z += zThreads)
+            for (int z = threadIdx.z; z < zThreads+6; z += zThreads)
             {
                 int sharedInd = x + (y * (xThreads+6)) + (z *(xThreads+6)*(yThreads+6));
                 int targetX = (blockIdx.x * blockDim.x) + x;
