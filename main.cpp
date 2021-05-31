@@ -94,6 +94,14 @@ size_t acVertexBufferIdx_shared(const int i, const int j, const int k)
     return i +                          //
            j * (xThreads+6) + //
            k * (xThreads+6) * (yThreads+6);
+
+    // slower
+    /*
+        return i * (xThreads+6) * (yThreads+6) +                          //
+           j * (xThreads+6) + //
+           k ;
+
+    */
 }
 
 
@@ -431,7 +439,7 @@ AcRealData read_data(const int3 &vertexIdx, const int3 &globalVertexIdx, AcReal 
 #ifdef STORE32
         storeDouble(i, buf[IDX(targetX, targetY, targetZ)], sharedBuf, (xThreads+6)*(yThreads+6)*(zThreads+6));
 #else
-        sharedBuf[i] = buf[IDX(targetX, targetY, targetZ)];
+        sharedBuf[acVertexBufferIdx_shared(x,y,z)] = buf[IDX(targetX, targetY, targetZ)];
 #endif
     }
 #elif HYBRIDFILL
@@ -647,18 +655,19 @@ int main(int argc, char const *argv[]) {
         auto end = std::chrono::steady_clock::now();
         std::chrono::duration<double> elapsed_seconds = end-start;
         std::cout << "elapsed time: " << elapsed_seconds.count() << "s\n";
-            cudaMemcpy(hostBuf, outBuf, sizeof(AcReal)*count, cudaMemcpyDefault);
+        
+#ifdef CHEKOUTPUT
+        cudaMemcpy(hostBuf, outBuf, sizeof(AcReal)*count, cudaMemcpyDefault);
 
-    std::cout << hostBuf[4241341] << " " << hostBuf[627389] << std::endl;
+        std::cout << hostBuf[4241341] << " " << hostBuf[627389] << std::endl;
 
-    double sum = 0;
-    for (size_t i = 0; i < count; i++)
-    {
-        sum += hostBuf[i];
-    }
-
-    std::cout << std::setprecision(12) << sum << std::endl;
-    
+        double sum = 0;
+        for (size_t i = 0; i < count; i++)
+        {
+            sum += hostBuf[i];
+        }
+        std::cout << std::setprecision(12) << sum << std::endl;
+#endif
     }
 
     
