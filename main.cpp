@@ -437,7 +437,7 @@ AcRealData read_data(const int3 &vertexIdx, const int3 &globalVertexIdx, AcReal 
 #elif HYBRIDFILL
 
 #else
-    // yes these are ordered wrong ... avoids bank conflicts ?
+    // yes these are ordered wrong ... but faster this way?
     for (size_t x = threadIdx.x; x < xThreads+6; x += xThreads)
     {
         for (size_t y = threadIdx.y; y < yThreads+6; y += yThreads)
